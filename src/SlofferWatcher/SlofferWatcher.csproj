@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- No SlofferWatcher.exe: Windows Application Control blocks unsigned exes. Runs via signed dotnet.exe instead. -->
+    <UseAppHost>false</UseAppHost>
     <UserSecretsId>dotnet-SlofferWatcher-14739071-c2e3-4ddc-afd2-dc9460b25de7</UserSecretsId>
   </PropertyGroup>
 

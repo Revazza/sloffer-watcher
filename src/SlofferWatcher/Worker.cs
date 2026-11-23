@@ -82,7 +82,7 @@ public sealed class Worker(
                 Eq(t.Status, task.Status) && Eq(t.Agent, task.Agent));
             if (trigger is null)
             {
-                logger.LogDebug("Skip {TaskId}: no trigger for status '{Status}' + agent '{Agent}'", task.Id, task.Status, task.Agent);
+                logger.LogInformation("Skip {TaskId} \"{Name}\": no trigger for {Agent} + {Status}", task.Id, task.Name, task.Agent, task.Status);
                 continue;
             }
 
