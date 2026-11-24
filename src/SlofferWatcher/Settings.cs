@@ -10,7 +10,10 @@ public sealed class ClickUpOptions
     public string ListId { get; set; } = "";
     public string AgentFieldName { get; set; } = "Agent";
     public string FailedStatus { get; set; } = "failed";
-    public int PollIntervalSeconds { get; set; } = 120;
+
+    /// <summary>Status set when a result-line run reports `pr_open`.</summary>
+    public string PrOpenStatus { get; set; } = "pr open";
+    public int PollIntervalSeconds { get; set; } = 15;
 }
 
 public sealed class ClaudeOptions
@@ -38,6 +41,12 @@ public sealed class TriggerOptions
 
     /// <summary>Skip the task while any task it is "waiting on" is not done.</summary>
     public bool RequireDependenciesDone { get; set; }
+
+    /// <summary>
+    /// When true the watcher fetches the task over REST, passes it to the skill inside a &lt;task-spec&gt; block,
+    /// expects a final `SLOFFER_RESULT {json}` line and sets the next status itself. The agent needs no ClickUp access.
+    /// </summary>
+    public bool UseResultLine { get; set; }
 }
 
 public sealed class WatcherSettings

@@ -148,7 +148,14 @@ public sealed class Worker(
         ClaudeRunResult result;
         try
         {
-            result = await runner.RunAsync(task.Id, trigger.Agent, agent, trigger.Skill, ct);
+            // Result-line skills get the whole task in the prompt, so the agent never calls ClickUp.
+            var prompt = $"/{trigger.Skill} {task.Id}";
+            if (trigger.UseResultLine)
+            {
+                var spec = await clickUp.GetTaskSpecAsync(task.Id, ct);
+                prompt = TaskPrompt.Build(trigger.Skill, spec);
+            }
+            result = await runner.RunAsync(task.Id, trigger.Agent, agent, trigger.Skill, prompt, ct);
         }
         catch (Exception ex)
         {
@@ -161,22 +168,25 @@ public sealed class Worker(
             task.Id, trigger.Agent, trigger.Skill, result.Duration, result.ExitCode?.ToString() ?? "n/a",
             result.TimedOut, result.Success, result.CostUsd, result.Usage ?? "n/a", result.LogFile ?? "n/a");
 
-        if (result.Success) return; // the skill itself sets the next status
+        var outcome = RunOutcomes.Decide(result, trigger);
 
-        // No automatic retries: report and mark failed.
-        var comment =
-            $"Sloffer watcher: /{trigger.Skill} run failed: {result.FailureReason}.\n" +
-            $"Exit code: {result.ExitCode?.ToString() ?? "n/a"}, duration: {result.Duration:g}.\n" +
-            $"Raw output log (watcher machine): {result.LogFile ?? "n/a"}";
+        // Old-style skills set their own next status on success.
+        if (result.Success && !trigger.UseResultLine) return;
+
+        // The watcher writes the outcome itself. No automatic retries: a task never stays in progress.
+        var nextStatus = outcome.PrOpen ? settings.ClickUp.PrOpenStatus : settings.ClickUp.FailedStatus;
         try
         {
-            await clickUp.AddCommentAsync(task.Id, comment, CancellationToken.None);
-            await clickUp.SetStatusAsync(task.Id, settings.ClickUp.FailedStatus, CancellationToken.None);
-            logger.LogWarning("Marked {TaskId} as '{Failed}': {Reason}", task.Id, settings.ClickUp.FailedStatus, result.FailureReason);
+            await clickUp.AddCommentAsync(task.Id, outcome.Comment, CancellationToken.None);
+            await clickUp.SetStatusAsync(task.Id, nextStatus, CancellationToken.None);
+            if (outcome.PrOpen)
+                logger.LogInformation("Marked {TaskId} as '{Status}'", task.Id, nextStatus);
+            else
+                logger.LogWarning("Marked {TaskId} as '{Status}': {Reason}", task.Id, nextStatus, result.FailureReason ?? "agent did not report pr_open");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Could not report failure on {TaskId}", task.Id);
+            logger.LogError(ex, "Could not report the outcome on {TaskId} (wanted status '{Status}')", task.Id, nextStatus);
         }
     }
 
