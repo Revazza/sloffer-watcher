@@ -14,12 +14,13 @@ public sealed record ClaudeRunResult(
     TimeSpan Duration,
     double? CostUsd,
     string? Usage,
-    string? LogFile);
+    string? LogFile,
+    string? ResultText = null);
 
 /// <summary>Runs Claude Code headless for one task and captures its JSON result.</summary>
 public sealed class ClaudeRunner(WatcherSettings settings, ILogger<ClaudeRunner> logger)
 {
-    public async Task<ClaudeRunResult> RunAsync(string taskId, string agentName, AgentOptions agent, string skill, CancellationToken ct)
+    public async Task<ClaudeRunResult> RunAsync(string taskId, string agentName, AgentOptions agent, string skill, string prompt, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(settings.Claude.ExecutablePath)
         {
@@ -36,7 +37,6 @@ public sealed class ClaudeRunner(WatcherSettings settings, ILogger<ClaudeRunner>
         foreach (var arg in BuildArguments(agent)) psi.ArgumentList.Add(arg);
 
         // The prompt goes in via stdin to avoid Windows quoting issues.
-        var prompt = $"/{skill} {taskId}";
         var started = DateTime.Now;
         var sw = Stopwatch.StartNew();
 
@@ -107,7 +107,8 @@ public sealed class ClaudeRunner(WatcherSettings settings, ILogger<ClaudeRunner>
             if (json["is_error"] is JsonValue e && e.TryGetValue<bool>(out var isError) && isError)
                 return new ClaudeRunResult(false, $"Claude reported an error ({ClickUpClient.Str(json["subtype"]) ?? "unknown"})", exitCode, false, sw.Elapsed, cost, usage, logFile);
 
-            return new ClaudeRunResult(true, null, exitCode, false, sw.Elapsed, cost, usage, logFile);
+            var resultText = ClickUpClient.Str(json["result"]);
+            return new ClaudeRunResult(true, null, exitCode, false, sw.Elapsed, cost, usage, logFile, resultText);
         }
     }
 

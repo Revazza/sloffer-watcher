@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SlofferWatcher/SlofferWatcher.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SlofferWatcher.Tests/SlofferWatcher.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -43,6 +43,34 @@ public sealed class ClickUpClient(HttpClient http, WatcherSettings settings)
         return type is "closed" or "done" || string.Equals(name, "done", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The task's name, markdown description and comments (oldest first), for passing to the agent.</summary>
+    public async Task<TaskSpec> GetTaskSpecAsync(string taskId, CancellationToken ct)
+    {
+        var id = Uri.EscapeDataString(taskId);
+        var task = await SendAsync(HttpMethod.Get, $"task/{id}?include_markdown_description=true", null, ct);
+        var commentJson = await SendAsync(HttpMethod.Get, $"task/{id}/comment", null, ct);
+
+        var description = Str(task["markdown_description"]);
+        if (string.IsNullOrWhiteSpace(description)) description = Str(task["text_content"]);
+        if (string.IsNullOrWhiteSpace(description)) description = Str(task["description"]);
+
+        // Only the first page of comments (ClickUp returns a page at a time); fine for the few comments a task has.
+        var comments = (commentJson["comments"] as JsonArray ?? [])
+            .OfType<JsonObject>()
+            .Select(cm => new TaskComment(
+                Str(cm["user"]?["username"]) ?? "unknown",
+                ParseMillis(Str(cm["date"])),
+                (Str(cm["comment_text"]) ?? "").Trim()))
+            .Where(cm => cm.Text.Length > 0)
+            .OrderBy(cm => cm.Date ?? DateTimeOffset.MinValue)
+            .ToList();
+
+        return new TaskSpec(Str(task["id"]) ?? taskId, Str(task["name"]) ?? "", description ?? "", comments);
+    }
+
+    private static DateTimeOffset? ParseMillis(string? value) =>
+        long.TryParse(value, out var ms) ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+
     public Task SetStatusAsync(string taskId, string status, CancellationToken ct) =>
         SendAsync(HttpMethod.Put, $"task/{Uri.EscapeDataString(taskId)}", new JsonObject { ["status"] = status }, ct);
 

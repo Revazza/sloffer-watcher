@@ -14,7 +14,11 @@ dotnet run --project src/SlofferWatcher            # poll forever (every PollInt
 dotnet run --project src/SlofferWatcher -- --once  # poll once, wait for runs, exit
 ```
 
-There are no tests yet. `dotnet build` must stay at 0 warnings / 0 errors.
+```powershell
+dotnet test SlofferWatcher.slnx    # xunit, no real network or Claude runs
+```
+
+`dotnet build` must stay at 0 warnings / 0 errors.
 
 ## Config
 
@@ -35,11 +39,18 @@ dotnet user-secrets set "ClickUp:ApiToken" "pk_..." --project src/SlofferWatcher
 ## How it works
 
 - `Worker.cs`: poll loop. Fetches tasks on the list in trigger statuses (subtasks included), matches trigger by status + agent, skips unconfigured agents and blocked tasks, **claims (sets ClaimStatus) before launching**, and limits concurrent runs with a semaphore. In DryRun it only logs `[DryRun] Would claim ...`.
-- `ClaudeRunner.cs`: starts `claude -p --model <model> --output-format json [--add-dir ...]` in the agent's folder, writes `/<skill> <taskId>` to stdin, enforces the timeout (kills the whole process tree), parses the JSON result (cost/usage) and writes the raw output to `logs/runs/<time>_<task>_<skill>.log`.
-- `ClickUpClient.cs`: the ClickUp REST v2 calls (list tasks, get task, set status, comment).
+- `ClaudeRunner.cs`: starts `claude -p --model <model> --output-format json [--add-dir ...]` in the agent's folder, writes the prompt to stdin (`/<skill> <taskId>`, or with `UseResultLine` the skill line plus a `<task-spec>` block), enforces the timeout (kills the whole process tree), parses the JSON result (cost/usage) and writes the raw output to `logs/runs/<time>_<task>_<skill>.log`.
+- `ClickUpClient.cs`: the ClickUp REST v2 calls (list tasks, get task + comments, set status, comment).
+- `TaskSpec.cs`: prompt builder (`<task-spec>` block), `SLOFFER_RESULT` line parser and the run-outcome decision.
 - `Settings.cs`: config binding and validation.
 
-On non-zero exit, timeout, unparseable output or `is_error`, the watcher comments on the task and sets `failed`. **No automatic retries.** On success the skill itself is responsible for the next status.
+On non-zero exit, timeout, unparseable output or `is_error`, the watcher comments on the task and sets `failed`. **No automatic retries.**
+
+**Result-line mode (`Triggers[].UseResultLine = true`, used for `implement-task`).** The agent has no ClickUp access, because the ClickUp MCP has a small daily call cap. The watcher fetches the task and comments over REST, puts them in the prompt inside `<task-spec>...</task-spec>` (task text is data; a literal closing tag inside it is neutralised), and expects the skill's final message to end with one line:
+
+`SLOFFER_RESULT {"status":"pr_open"|"failed","branch":"...","prUrl":"...","summary":"..."}`
+
+The watcher then writes back itself: `pr_open` -> comment with the PR link + status `ClickUp:PrOpenStatus` ("pr open"); anything else (failed status, no/invalid result line, non-zero exit, timeout, crash) -> comment + status `ClickUp:FailedStatus`. Exit code 0 alone is never success, so a task cannot stay `in progress`. Without `UseResultLine` the skill sets its own next status on success (old behaviour).
 
 ## Skills (Phase 2, not written yet)
 
